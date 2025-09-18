@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Deal Timeline Chart</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6; /* gray-100 */
+        }
+        /* Custom styles for D3 chart elements */
+        .axis path,
+        .axis line {
+            fill: none;
+            stroke: #9ca3af; /* gray-400 */
+            shape-rendering: crispEdges;
+        }
+        .axis text {
+            font-size: 12px;
+            fill: #4b5563; /* gray-600 */
+        }
+        .grid line {
+            stroke: #e5e7eb; /* gray-200 */
+            stroke-opacity: 0.7;
+            shape-rendering: crispEdges;
+        }
+        .tooltip {
+            position: absolute;
+            text-align: left;
+            padding: 8px 12px;
+            font-size: 14px;
+            background: #1f2937; /* gray-800 */
+            color: white;
+            border: 0px;
+            border-radius: 8px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .tooltip-title {
+            font-weight: 600;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        .tooltip-item {
+            display: flex;
+            align-items: center;
+            margin-top: 4px;
+        }
+        .tooltip-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        /* Modal styles */
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 50;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+            width: 90%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="antialiased text-gray-800">
+
+    <div class="min-h-screen p-4 sm:p-6 lg:p-8">
+        <div class="max-w-7xl mx-auto">
+            
+            <header class="mb-6">
+                <h1 class="text-3xl font-bold text-gray-900">Deal Timeline & Analysis</h1>
+                <p class="text-gray-600 mt-1">Visualize closed and pipeline deals over time.</p>
+            </header>
+
+            <!-- Controls Section -->
+            <div class="bg-white p-4 rounded-lg shadow-sm mb-6 flex flex-wrap justify-between items-center gap-4">
+                <!-- Filters Pop-out -->
+                <div class="relative">
+                    <button id="filter-btn" class="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 011-1h12a1 1 0 011 1v3a1 1 0 01-.293.707L12 11.414V15a1 1 0 01-.293.707l-2 2A1 1 0 018 17v-5.586L3.293 6.707A1 1 0 013 6V3z" clip-rule="evenodd" /></svg>
+                        Filters
+                    </button>
+                    <div id="filter-popup" class="hidden absolute mt-2 w-72 bg-white rounded-lg shadow-xl z-20 p-6 border border-gray-200">
+                        <!-- Group By Filter -->
+                        <fieldset>
+                            <legend class="text-md font-semibold text-gray-800 mb-2">Group By</legend>
+                            <div class="space-y-2">
+                                <div class="flex items-center">
+                                    <input id="group-geo" name="group-by" type="radio" value="Geo Location" checked class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                                    <label for="group-geo" class="ml-3 block text-sm font-medium text-gray-700">Geo Location</label>
+                                </div>
+                                <div class="flex items-center">
+                                    <input id="group-owner" name="group-by" type="radio" value="Deal Owner" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                                    <label for="group-owner" class="ml-3 block text-sm font-medium text-gray-700">Deal Owner</label>
+                                </div>
+                                <div id="no-owner-toggle-container" class="hidden pl-7 flex items-center">
+                                    <input id="no-owner-toggle" type="checkbox" checked class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                                    <label for="no-owner-toggle" class="ml-3 block text-sm font-medium text-gray-700">Include 'No Owner'</label>
+                                </div>
+                            </div>
+                        </fieldset>
+
+                        <!-- Pipeline Filter -->
+                        <fieldset class="mt-6">
+                            <legend class="text-md font-semibold text-gray-800 mb-2">Pipeline Deals</legend>
+                             <div class="space-y-2">
+                                <div class="flex items-center">
+                                    <input id="pipeline-show" name="pipeline-deals" type="radio" value="show" checked class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                                    <label for="pipeline-show" class="ml-3 block text-sm font-medium text-gray-700">Show 100%</label>
+                                </div>
+                                <div class="flex items-center">
+                                    <input id="pipeline-20" name="pipeline-deals" type="radio" value="20percent" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                                    <label for="pipeline-20" class="ml-3 block text-sm font-medium text-gray-700">Show 20% (Forecast)</label>
+                                </div>
+                                <div class="flex items-center">
+                                    <input id="pipeline-hide" name="pipeline-deals" type="radio" value="hide" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
+                                    <label for="pipeline-hide" class="ml-3 block text-sm font-medium text-gray-700">Hide</label>
+                                </div>
+                            </div>
+                        </fieldset>
+                    </div>
+                </div>
+
+                <!-- Ask AI Pop-out -->
+                 <div>
+                    <button id="ask-ai-btn" class="inline-flex items-center px-4 py-2 bg-purple-600 text-white font-semibold rounded-lg shadow-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-75">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z" /></svg>
+                        Ask AI about Data
+                    </button>
+                </div>
+            </div>
+
+            <!-- Chart Container -->
+            <div class="bg-white p-4 sm:p-6 rounded-lg shadow-sm">
+                <div id="chart-container" class="w-full h-[500px]">
+                    <div id="loader" class="flex justify-center items-center h-full">
+                         <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
+                    </div>
+                </div>
+                <div id="legend" class="mt-4 flex flex-wrap justify-center gap-x-6 gap-y-2"></div>
+            </div>
+
+        </div>
+    </div>
+    
+    <!-- AI Modal -->
+    <div id="ai-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-800">Ask a Question About Your Data</h2>
+                <button id="close-modal-btn" class="text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+            <p class="text-sm text-gray-600 mb-4">Get insights from your deal data. Try asking: "Who was the best Deal Owner?" or "What Geo location performed the best?" or "Summarize the deals in Q4 2025."</p>
+            <div class="space-y-4">
+                <textarea id="ai-prompt" class="w-full h-24 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500" placeholder="Enter your question here..."></textarea>
+                <button id="submit-ai-prompt" class="w-full px-4 py-2 bg-purple-600 text-white font-semibold rounded-lg shadow-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-75 flex items-center justify-center">
+                    <span id="ai-button-text">Get Answer</span>
+                    <div id="ai-loader" class="hidden animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white ml-3"></div>
+                </button>
+            </div>
+            <div id="ai-response-container" class="mt-6">
+                <h3 class="font-semibold text-gray-800">Answer:</h3>
+                <div id="ai-response" class="mt-2 p-4 bg-gray-50 rounded-md text-gray-700 max-h-60 overflow-y-auto">
+                    Your answer will appear here.
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const rawData = `
+Contract Value,Due Date (Payment Date),Type of contract,Geo Location,Deal Owner
+"$17,300.00",5/3/24,Renewal,Europe,-
+"$28,800.00",1/1/25,Renewal,Europe,-
+-$857.14,1/1/25,Right-sizing,Europe,-
+"$13,000.00",9/20/23,Support Services,Europe,-
+"$15,000.00",9/20/23,New Logo,Europe,-
+"$1,080.00",10/16/25,Expansion,Europe,Wolfgang
+"$20,400.00",4/15/24,New Logo,Europe,-
+"$22,440.00",3/6/25,Renewal,Europe,-
+"$24,000.00",4/15/24,New Logo,North America,-
+"$1,320.00",1/30/25,Expansion,North America,-
+$500.00,1/30/25,Expansion,North America,Jon
+$480.00,3/10/25,Expansion,North America,Jon
+"$27,473.85",6/28/25,Renewal,North America,Jon
+"$32,028.15",6/28/25,Renewal Expansion,North America,Jon
+,,Expansion,North America,Jon
+"$18,240.00",6/25/24,New Logo,Asia-Pacific,Jon
+"$18,240.00",5/16/25,Renewal,Asia-Pacific,Jon
+"$2,280.00",5/16/25,Renewal Expansion,Asia-Pacific,Jon
+"$29,700.00",5/16/25,Expansion,Asia-Pacific,Jon
+"$9,600.00",7/6/24,New Logo,Europe,Jon
+"$6,400.00",3/24/25,Expansion,Europe,Jon
+"$2,880.00",3/24/25,Renewal Expansion,Europe,Jon
+"$28,800.00",3/24/25,Renewal,Europe,Jon
+"$49,992.00",7/11/24,New Logo,North America,Jon
+"$1,500.00",9/24/24,Expansion,North America,Jon
+"$6,020.00",11/21/24,Expansion,North America,Jon
+"$62,312.00",7/5/25,Renewal,North America,Jon
+"$50,462.56",7/5/25,Renewal Expansion,North America,Jon
+"$43,240.00",10/11/24,New Logo,North America,Jon
+"$29,046.48",9/29/25,Renewal,North America,Jon
+"-$14,193.52",9/29/25,Right-sizing,North America,Jon
+"$5,000.00",9/5/24,New Logo,North America,-
+"-$5,000.00",9/5/24,Right-sizing,North America,-
+"$88,800.00",12/6/24,New Logo,North America,Jon
+"$23,800.00",12/12/24,New Logo,North America,Jon
+"$18,960.00",12/17/24,New Logo,Europe,Sam
+"$8,000.00",4/25/25,Expansion,Europe,Sam
+"$25,200.00",7/26/25,Expansion,Europe,Sam
+"$7,800.00",11/28/24,New Logo,Europe,Jon
+$250.00,10/22/24,New Logo,North America,Jon
+$250.00,6/26/24,New Logo,North America,-
+$250.00,10/11/24,New Logo,North America,Jon
+$150.00,12/16/24,New Logo,North America,Jon
+"$14,117.00",2/23/25,New Logo,North America,Jon
+$250.00,12/31/24,New Logo,North America,Jon
+$50.00,3/31/25,Expansion,North America,Jon
+"$12,960.00",3/31/25,New Logo,Europe,Jon
+"$10,800.00",8/10/25,Expansion,Europe,Wolfgang
+"$10,800.00",8/10/25,Renewal,Europe,Wolfgang
+$250.00,1/31/26,New Logo,Europe,Jon
+"$3,500.00",8/20/25,Expansion,North America,Jon
+$500.00,10/5/25,Expansion,North America,Jon
+"$15,000.00",4/14/25,New Logo,North America,Jon
+$350.00,3/11/25,New Logo,North America,Jon
+$250.00,3/18/26,New Logo,Middle East,Jon
+"$4,200.00",4/15/25,New Logo,Europe,Jon
+"$8,400.00",5/15/25,New Logo,North America,Jon
+"$70,200.00",5/17/25,New Logo,North America,Jon
+"$23,760.00",4/30/25,New Logo,North America,Jon
+"$47,520.00",6/8/25,New Logo,North America,Jon
+"$15,000.00",6/15/25,New Logo,Europe,Jon
+"$9,600.00",6/21/25,New Logo,North America,Jon
+,,New Logo,North America,Jon
+"$1,500.00",6/17/25,New Logo,North America,Jon
+$100.00,7/17/25,Expansion,North America,Jon
+$100.00,9/17/25,Expansion,North America,Jon
+$100.00,8/17/25,Expansion,North America,Jon
+"$1,800.00",6/26/25,New Logo,Europe,Sam
+"$18,960.00",7/26/25,New Logo,North America,Jon
+"$10,800.00",9/28/25,Expansion,North America,Jon
+"$1,700.00",7/8/25,New Logo,North America,Jon
+"$12,000.00",9/1/25,New Logo,Asia-Pacific,Sam
+"$14,400.00",9/12/25,New Logo,North America,Jon
+"$13,800.00",9/14/25,New Logo,North America,Jon
+"$16,200.00",10/8/25,New Logo,North America,Jon
+"$44,645.40",10/12/25,New Logo,North America,Jon
+"$22,000.00",2026-09-16 11:30,Renewal Pipeline,North America,Jon Phelps
+"$22,000.00",2025-12-26 10:13,New Logo,North America,Jon Phelps
+"$16,200.00",2026-02-27 18:56,New Logo,North America,Jon Phelps
+"$22,000.00",2026-08-15 9:05,Renewal Pipeline,North America,Jon Phelps
+"$44,645.40",2025-12-05 8:40,New Logo,Europe,Sam Holland
+"$1,080.00",2026-09-12 12:18,Renewal Pipeline,North America,Jon Phelps
+"$13,950.00",2025-09-19 7:19,Expansion,Europe,Wolfgang Kern
+"$22,000.00",2025-09-30 7:46,New Logo,Europe,Wolfgang Kern
+"$81,360.00",2025-11-27 10:07,New Logo,North America,Jon Phelps
+"$11,400.00",2025-12-31 12:15,Renewal Pipeline,Europe,Sam Holland
+"$22,000.00",2025-11-20 10:27,Renewal Pipeline,Europe,Sam Holland
+"$25,000.00",2025-12-26 15:28,New Logo,North America,Jon Phelps
+"$22,000.00",2026-04-16 9:00,New Logo,Europe,Wolfgang Kern
+,2025-12-18 4:04,Expansion,Europe,Wolfgang Kern
+"$22,000.00",2025-12-26 18:23,New Logo,North America,Jon Phelps
+"$13,800.00",2026-08-18 18:09,Renewal Pipeline,North America,Jon Phelps
+"$22,000.00",2025-12-26 15:15,New Logo,North America,Jon Phelps
+"$14,400.00",2026-08-01 18:10,Renewal Pipeline,North America,Jon Phelps
+"$29,400.00",2025-10-31 14:12,New Logo,North America,Jon Phelps
+"$12,000.00",2026-08-04 18:12,Renewal Pipeline,Asia-Pacific,Sam Holland
+"$29,046.48",2026-08-01 18:06,Renewal Pipeline,North America,Jon Phelps
+"$22,000.00",2025-12-26 9:52,New Logo,North America,Jon Phelps
+"$25,000.00",2026-02-05 5:46,New Logo,Europe,Wolfgang Kern
+"$10,000.00",2025-11-21 8:10,Expansion,North America,Jon Phelps
+"$121,221.60",2026-05-01 10:52,Renewal Pipeline,North America,Jon Phelps
+"$12,000.00",2025-11-28 15:16,New Logo,North America,Jon Phelps
+"$25,000.00",2025-12-30 1:15,New Logo,Europe,Wolfgang Kern
+"$25,000.00",2025-12-18 10:18,Expansion,Europe,Wolfgang Kern
+"$25,000.00",2025-12-18 2:00,New Logo,Europe,Wolfgang Kern
+"$20,400.00",2026-07-07 16:11,Renewal Pipeline,North America,Jon Phelps
+"$22,000.00",2025-12-26 13:51,New Logo,North America,Jon Phelps
+"$20,000.00",2025-12-18 8:56,New Logo,Europe,Wolfgang Kern
+"$25,000.00",2025-11-28 8:53,New Logo,Europe,Wolfgang Kern
+"$25,000.00",2025-12-18 8:53,New Logo,Europe,Wolfgang Kern
+"$33,360.00",2026-05-24 8:51,Renewal Pipeline,North America,Jon Phelps
+"$21,600.00",2026-06-25 12:34,Subscription Renewals,Europe,Sam Holland
+"$3,000.00",2025-09-26 5:28,New Logo,Europe,Sam Holland
+"$21,600.00",2026-06-13 18:44,Renewal Pipeline,North America,Jon Phelps
+"$6,000.00",2025-11-23 8:55,Expansion,North America,Jon Phelps
+"$9,600.00",2026-05-23 18:32,Renewal Pipeline,North America,Jon Phelps
+"$9,600.00",2025-10-31 10:09,New Logo,North America,Jon Phelps
+"$15,000.00",2026-05-15 12:19,Renewal Pipeline,Europe,Wolfgang Kern
+"$27,600.00",2025-10-15 3:56,New Logo,Europe,Sam Holland
+"$112,774.00",2026-06-14 10:01,Renewal Pipeline,North America,Jon Phelps
+"$47,520.00",2026-05-07 18:26,Renewal Pipeline,North America,Jon Phelps
+"$22,000.00",2025-11-21 8:51,New Logo,North America,Jon Phelps
+"$51,600.00",2025-11-21 12:59,New Logo,North America,Jon Phelps
+"$31,680.00",2026-06-15 10:54,Renewal Pipeline,Europe,Wolfgang Kern
+"$22,000.00",2025-11-21 10:22,New Logo,North America,Jon Phelps
+"$23,760.00",2026-03-31 10:50,Renewal Pipeline,North America,Jon Phelps
+"$70,200.00",2026-03-31 17:44,Renewal Pipeline,North America,Jon Phelps
+"$8,400.00",2026-03-21 17:51,Renewal Pipeline,North America,Jon Phelps
+"$4,200.00",2026-03-31 17:42,Renewal Pipeline,Europe,Sam Holland
+"$22,000.00",2025-06-25 17:20,Subscription,North America,Jon Phelps
+"$3,000.00",2026-03-18 17:38,Renewal Pipeline,Middle East,Sam Holland
+"$12,500.00",2025-10-31 10:54,New Logo,Europe,Wolfgang Kern
+"$22,000.00",2025-11-14 16:33,New Logo,North America,Jon Phelps
+"$22,000.00",2025-11-28 9:41,New Logo,North America,Jon Phelps
+"$4,200.00",2026-03-10 16:18,Renewal Pipeline,North America,Jon Phelps
+"$22,000.00",2026-04-17 3:15,New Logo,Europe,Wolfgang Kern
+"$22,500.00",2026-02-28 17:52,Renewal Pipeline,North America,Jon Phelps
+"$4,500.00",2025-05-23 10:59,Subscription,North America,Jon Phelps
+"$22,000.00",2025-11-21 11:34,New Logo,North America,Jon Phelps
+"$22,440.00",2026-03-12 16:27,Renewal Pipeline,Europe,Sam Holland
+"$28,800.00",2025-12-31 8:23,Renewal Pipeline,Europe,Wolfgang Kern
+"$20,160.00",2027-01-31 15:06,Renewal Pipeline,Europe,Wolfgang Kern
+"$3,000.00",2026-02-01 14:58,Renewal Pipeline,Europe,Wolfgang Kern
+"$3,000.00",2025-04-30 14:58,Subscription,North America,Jon Phelps
+"$22,000.00",2025-12-18 2:40,New Logo,Europe,Wolfgang Kern
+"$3,600.00",2025-12-31 12:06,Renewal Pipeline,North America,Jon Phelps
+"$15,399.96",2025-12-31 11:53,Renewal Pipeline,North America,Jon Phelps
+"$22,000.00",2025-12-26 11:29,New Logo,North America,Jon Phelps
+"$1,800.00",2025-12-16 17:22,Subscription Renewals,North America,Jon Phelps
+"$3,000.00",2025-03-09 16:17,Subscription,North America,Jon Phelps
+"$23,800.00",2025-11-29 10:51,Renewal Pipeline,North America,Jon Phelps
+"$88,800.00",2025-11-21 10:39,Renewal Pipeline,North America,Jon Phelps
+"$3,000.00",2025-02-20 12:39,Subscription,North America,Jon Phelps
+"$11,400.00",2025-11-28 9:54,Renewal Pipeline,Europe,Sam Holland
+"$11,880.00",2025-10-24 8:34,New Logo,North America,Jon Phelps
+"$24,600.00",2025-12-25 9:43,New Logo,North America,Jon Phelps
+"$33,600.00",2026-01-30 14:31,New Logo,North America,Jon Phelps
+"$3,000.00",2025-02-05 11:57,Subscription,North America,Jon Phelps
+"$50,000.00",2025-12-30 3:42,New Logo,Europe,Wolfgang Kern
+"$27,360.00",2025-11-21 15:31,New Logo,North America,Jon Phelps
+"$50,220.00",2026-04-04 13:10,Renewal Pipeline,North America,Jon Phelps
+"$14,400.00",2025-11-21 7:23,New Logo,North America,Jon Phelps
+"$22,000.00",2024-11-08 9:37,New Logo,North America,Jon Phelps
+`;
+
+        // --- DATA PARSING ---
+        function parseCurrency(value) {
+            if (!value) return 0;
+            // Remove quotes and other non-numeric characters except for '-' and '.'
+            return parseFloat(value.replace(/["$,]/g, ''));
+        }
+
+        function cleanOwnerName(name) {
+            if (!name || name.trim() === '-' || name.trim() === '') return 'No Owner';
+            if (name.includes('Phelps')) return 'Jon';
+            if (name.includes('Holland')) return 'Sam';
+            if (name.includes('Kern')) return 'Wolfgang';
+            return name.trim().replace(/"/g, ''); // Also remove quotes from owner name
+        }
+        
+        // More robust CSV line parser to handle quoted fields
+        function parseCsvLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"' && (i === 0 || line[i-1] !== '\\')) { // Basic quote handling
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current);
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current);
+            return result;
+        }
+
+        const allDealsRaw = rawData.trim().split('\n').slice(1);
+
+        const allDeals = allDealsRaw.map(row => {
+            const parts = parseCsvLine(row);
+            if (parts.length < 5 || !parts[1]) return null; // Ensure there's a date
+            return {
+                value: parseCurrency(parts[0]),
+                date: new Date(parts[1].split(' ')[0]), // Handle dates with and without time
+                type: parts[2].trim().replace(/"/g, ''),
+                geo: parts[3].trim().replace(/"/g, ''),
+                owner: cleanOwnerName(parts[4]),
+            };
+        }).filter(d => d && !isNaN(d.date.getTime()) && !isNaN(d.value) && d.value !== 0);
+
+        const currentDate = new Date();
+        currentDate.setHours(0, 0, 0, 0); // Set to start of day for accurate comparison
+
+        const closedDeals = allDeals.filter(d => d.date < currentDate);
+        closedDeals.forEach(d => d.status = 'Closed');
+
+        const pipelineDeals = allDeals.filter(d => d.date >= currentDate);
+        pipelineDeals.forEach(d => d.status = 'Pipeline');
+
+
+        // --- Define Static Color Scales ---
+        const allGeos = [...new Set(allDeals.map(d => d.geo))].sort();
+        const allOwners = [...new Set(allDeals.map(d => d.owner))].sort();
+
+        const geoColors = d3.scaleOrdinal()
+            .domain(allGeos)
+            .range(d3.schemeTableau10);
+
+        const ownerColors = d3.scaleOrdinal()
+            .domain(allOwners)
+            .range(d3.schemeTableau10);
+
+
+        // --- D3 CHART LOGIC ---
+        const svg = d3.select("#chart-container").append("svg").attr("width", "100%").attr("height", "100%");
+        const tooltip = d3.select("body").append("div").attr("class", "tooltip");
+        let currentChartState = {}; // To store dimensions and scales
+
+        function renderChart() {
+            document.getElementById('loader').style.display = 'flex';
+            svg.selectAll("*").remove(); // Clear previous chart
+            
+            // Artificial delay to show loader
+            setTimeout(() => {
+                // Get filter settings
+                const groupBy = document.querySelector('input[name="group-by"]:checked').value;
+                const pipelineOption = document.querySelector('input[name="pipeline-deals"]:checked').value;
+                const includeNoOwner = document.getElementById('no-owner-toggle').checked;
+
+                // 1. Prepare Data based on filters
+                let processedPipelineDeals = [];
+                if (pipelineOption === 'show') {
+                    processedPipelineDeals = pipelineDeals;
+                } else if (pipelineOption === '20percent') {
+                    const sortedPipeline = [...pipelineDeals].sort((a, b) => a.value - b.value);
+                    const totalPipelineValue = d3.sum(sortedPipeline, d => d.value);
+                    let cumulativeValue = 0;
+                    const eightyPercentValue = totalPipelineValue * 0.8;
+                    processedPipelineDeals = sortedPipeline.filter(d => {
+                        if (cumulativeValue < eightyPercentValue) {
+                            cumulativeValue += d.value;
+                            return false;
+                        }
+                        return true;
+                    });
+                }
+                
+                let combinedData = [...closedDeals, ...processedPipelineDeals];
+
+                if(groupBy === 'Deal Owner' && !includeNoOwner) {
+                    combinedData = combinedData.filter(d => d.owner !== 'No Owner');
+                }
+
+                if (combinedData.length === 0) {
+                     document.getElementById('loader').style.display = 'none';
+                     svg.append("text")
+                         .attr("x", "50%")
+                         .attr("y", "50%")
+                         .attr("text-anchor", "middle")
+                         .attr("font-size", "18px")
+                         .attr("fill", "#6b7280")
+                         .text("No data to display for the selected filters.");
+                     d3.select("#legend").html("");
+                     return;
+                }
+                
+                // 2. Aggregate data by month and the chosen group
+                const dataByMonth = d3.rollup(combinedData,
+                    v => {
+                        const rollup = d3.rollup(v, g => d3.sum(g, d => d.value), d => groupBy === 'Geo Location' ? d.geo : d.owner);
+                        const obj = Object.fromEntries(rollup);
+                        obj.total = d3.sum(v, d => d.value);
+                        return obj;
+                    },
+                    d => d3.timeMonth(d.date)
+                );
+
+                const aggregatedData = Array.from(dataByMonth, ([key, value]) => ({ date: key, ...value })).sort((a, b) => a.date - b.date);
+
+                const keys = [...new Set(combinedData.map(d => groupBy === 'Geo Location' ? d.geo : d.owner))].sort();
+                if(groupBy === 'Deal Owner' && !includeNoOwner) {
+                    const index = keys.indexOf('No Owner');
+                    if(index > -1) keys.splice(index, 1);
+                }
+                
+                // Select the appropriate pre-defined color scale for consistency
+                const color = groupBy === 'Geo Location' ? geoColors : ownerColors;
+                
+                const stackedData = d3.stack()
+                    .keys(keys)
+                    .value((d, key) => d[key] || 0)
+                    (aggregatedData);
+
+                // 3. Setup Chart Dimensions and Scales
+                const margin = { top: 20, right: 30, bottom: 60, left: 80 };
+                const width = document.getElementById('chart-container').clientWidth - margin.left - margin.right;
+                const height = document.getElementById('chart-container').clientHeight - margin.top - margin.bottom;
+
+                svg.attr("viewBox", `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`);
+
+                const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+                
+                const x = d3.scaleBand()
+                    .domain(aggregatedData.map(d => d.date))
+                    .range([0, width])
+                    .padding(0.2);
+
+                const y = d3.scaleLinear()
+                    .domain([0, d3.max(aggregatedData, d => d.total)])
+                    .nice()
+                    .range([height, 0]);
+                
+                currentChartState = {x, y, color, keys, height};
+
+                // 4. Draw Axes and Gridlines
+                const xAxis = g.append("g")
+                    .attr("transform", `translate(0,${height})`)
+                    .call(d3.axisBottom(x).tickFormat(d3.timeFormat("%b '%y")))
+                    .selectAll("text")
+                    .attr("transform", "translate(-10,0)rotate(-45)")
+                    .style("text-anchor", "end");
+                
+                const yAxis = g.append("g")
+                    .call(d3.axisLeft(y).tickFormat(d => `$${(d / 1000)}k`));
+
+                g.append("g").attr("class", "grid")
+                    .call(d3.axisLeft(y).tickSize(-width).tickFormat(""));
+                
+                // Add axis labels
+                 svg.append("text")
+                    .attr("transform", `translate(${margin.left + width / 2}, ${height + margin.top + margin.bottom - 5})`)
+                    .style("text-anchor", "middle")
+                    .text("Month");
+
+                svg.append("text")
+                    .attr("transform", "rotate(-90)")
+                    .attr("y", 0)
+                    .attr("x", 0 - (height / 2) - margin.top)
+                    .attr("dy", "1em")
+                    .style("text-anchor", "middle")
+                    .text("Contract Value");
+
+                // 5. Draw Bars
+                g.append("g")
+                    .selectAll("g")
+                    .data(stackedData)
+                    .join("g")
+                    .attr("fill", d => color(d.key))
+                    .selectAll("rect")
+                    .data(d => d)
+                    .join("rect")
+                    .attr("x", d => x(d.data.date))
+                    .attr("y", d => y(d[1]))
+                    .attr("height", d => y(d[0]) - y(d[1]))
+                    .attr("width", x.bandwidth())
+                    .on("mouseover", handleMouseOver)
+                    .on("mousemove", handleMouseMove)
+                    .on("mouseout", handleMouseOut);
+
+                // 6. Draw Legend
+                const legend = d3.select("#legend");
+                legend.html("");
+                keys.forEach(key => {
+                    const legendItem = legend.append("div")
+                        .attr("class", "flex items-center");
+
+                    legendItem.append("div")
+                        .style("width", "16px")
+                        .style("height", "16px")
+                        .style("background-color", color(key))
+                        .attr("class", "rounded-sm");
+
+                    legendItem.append("span")
+                        .attr("class", "ml-2 text-sm text-gray-600")
+                        .text(key);
+                });
+                document.getElementById('loader').style.display = 'none';
+            }, 250); // Small delay
+        }
+
+        // --- TOOLTIP HANDLERS ---
+        function handleMouseOver(event, d) {
+            tooltip.style("opacity", .9);
+        }
+
+        function handleMouseMove(event, d) {
+            const subgroupName = d3.select(this.parentNode).datum().key;
+            const subgroupValue = d.data[subgroupName];
+            const monthTotal = d.data.total;
+            const month = d3.timeFormat("%B %Y")(d.data.date);
+
+            let tooltipHtml = `<div class="tooltip-title">${month}</div>`;
+            tooltipHtml += `<div>Total: <strong>${d3.format("$,.2f")(monthTotal)}</strong></div><hr class="my-1 border-gray-600">`;
+            
+            // Show all items for that month in the tooltip for context
+            currentChartState.keys.forEach(key => {
+                const value = d.data[key] || 0;
+                if (value > 0) {
+                     tooltipHtml += `<div class="tooltip-item ${key === subgroupName ? 'font-bold' : ''}">
+                        <div class="tooltip-color" style="background-color: ${currentChartState.color(key)}"></div>
+                        <span>${key}: ${d3.format("$,.2f")(value)}</span>
+                     </div>`;
+                }
+            });
+
+            tooltip.html(tooltipHtml)
+                .style("left", (event.pageX + 15) + "px")
+                .style("top", (event.pageY - 28) + "px");
+        }
+        
+        function handleMouseOut(event, d) {
+            tooltip.style("opacity", 0);
+        }
+
+        // --- EVENT LISTENERS ---
+        document.addEventListener('DOMContentLoaded', () => {
+            renderChart();
+
+            // Filter controls
+            const filterBtn = document.getElementById('filter-btn');
+            const filterPopup = document.getElementById('filter-popup');
+            
+            filterBtn.addEventListener('click', () => {
+                filterPopup.classList.toggle('hidden');
+            });
+
+            document.addEventListener('click', (event) => {
+                 if (!filterBtn.contains(event.target) && !filterPopup.contains(event.target)) {
+                    filterPopup.classList.add('hidden');
+                }
+            });
+            
+            document.querySelectorAll('input[name="group-by"], input[name="pipeline-deals"], #no-owner-toggle').forEach(input => {
+                input.addEventListener('change', renderChart);
+            });
+            
+            const noOwnerToggleContainer = document.getElementById('no-owner-toggle-container');
+            document.querySelectorAll('input[name="group-by"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    if (this.value === 'Deal Owner') {
+                        noOwnerToggleContainer.classList.remove('hidden');
+                    } else {
+                        noOwnerToggleContainer.classList.add('hidden');
+                    }
+                });
+            });
+
+            // AI Modal controls
+            const aiModal = document.getElementById('ai-modal');
+            const askAiBtn = document.getElementById('ask-ai-btn');
+            const closeModalBtn = document.getElementById('close-modal-btn');
+            const submitAiPrompt = document.getElementById('submit-ai-prompt');
+
+            askAiBtn.addEventListener('click', () => aiModal.classList.remove('hidden'));
+            closeModalBtn.addEventListener('click', () => aiModal.classList.add('hidden'));
+            aiModal.addEventListener('click', (e) => {
+                if (e.target === aiModal) aiModal.classList.add('hidden');
+            });
+            
+            submitAiPrompt.addEventListener('click', handleAIPrompt);
+        });
+
+        window.addEventListener('resize', renderChart);
+
+        // --- GEMINI API INTEGRATION ---
+        async function handleAIPrompt() {
+            const prompt = document.getElementById('ai-prompt').value;
+            if (!prompt) {
+                document.getElementById('ai-response').innerText = "Please enter a question.";
+                return;
+            }
+
+            const aiLoader = document.getElementById('ai-loader');
+            const aiButtonText = document.getElementById('ai-button-text');
+            const aiSubmitButton = document.getElementById('submit-ai-prompt');
+            
+            aiLoader.classList.remove('hidden');
+            aiButtonText.innerText = 'Analyzing...';
+            aiSubmitButton.disabled = true;
+
+            const fullDataset = [...closedDeals, ...pipelineDeals];
+            const dataAsText = "Closed Deals:\n" + d3.csvFormat(closedDeals) + "\n\nPipeline Deals:\n" + d3.csvFormat(pipelineDeals);
+
+            const systemPrompt = `You are a helpful data analyst. Analyze the following sales deal data to answer the user's question. Be concise and clear in your response. The current date is ${new Date().toDateString()}. Base your entire analysis ONLY on the data provided. Do not make up information. Format your answer nicely using markdown where appropriate (e.g., lists, bold text).`;
+            const userQuery = `Here is the data:\n\n${dataAsText}\n\nNow, please answer this question: "${prompt}"`;
+            
+            try {
+                const apiKey = ""; // API key is handled by the environment
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+                const payload = {
+                    contents: [{ parts: [{ text: userQuery }] }],
+                    systemInstruction: {
+                        parts: [{ text: systemPrompt }]
+                    },
+                };
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`API request failed with status ${response.status}`);
+                }
+                
+                const result = await response.json();
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (text) {
+                     // Basic markdown to HTML conversion
+                     let htmlResponse = text
+                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
+                        .replace(/\*(.*?)\*/g, '<em>$1</em>')       // Italics
+                        .replace(/^- (.*)/gm, '<li class="ml-4 list-disc">$1</li>'); // List items
+                     document.getElementById('ai-response').innerHTML = htmlResponse;
+                } else {
+                     document.getElementById('ai-response').innerText = "Sorry, I couldn't generate a response. Please try again.";
+                }
+
+            } catch (error) {
+                console.error("Error fetching from Gemini API:", error);
+                document.getElementById('ai-response').innerText = "An error occurred while trying to get an answer. Please check the console for details.";
+            } finally {
+                aiLoader.classList.add('hidden');
+                aiButtonText.innerText = 'Get Answer';
+                aiSubmitButton.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
